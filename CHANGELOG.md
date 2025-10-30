@@ -10,3 +10,7 @@
 - Merged branch: hotfix/1-1-1
 - Pull request: #15
 
+## Version 2.0.0 - 2025-10-30
+- Merged branch: test/1-2
+- Pull request: #16
+
