@@ -6,3 +6,7 @@
 - Merged branch: feature/login1-1
 - Pull request: #14
 
+## Version 1.1.1 - 2025-10-30
+- Merged branch: hotfix/1-1-1
+- Pull request: #15
+
