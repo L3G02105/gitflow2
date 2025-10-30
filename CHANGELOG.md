@@ -14,3 +14,7 @@
 - Merged branch: test/1-2
 - Pull request: #16
 
+## Version 2.1.0 - 2025-10-30
+- Merged branch: feature/2-1
+- Pull request: #17
+
