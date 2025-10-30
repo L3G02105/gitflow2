@@ -11,8 +11,7 @@ jobs:
   version_and_changelog:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    permissions:
-       contents: write
+   
     outputs:
       new_version: ${{ steps.bump.outputs.new_version }}
       base_branch: ${{ steps.vars.outputs.base_branch }}
