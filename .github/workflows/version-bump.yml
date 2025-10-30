@@ -5,90 +5,88 @@ on:
     types: [closed]
 
 permissions:
-  contents: write
+  contents: write  # Разрешаем пуш и создание тегов
 
 jobs:
   version_and_changelog:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.bump.outputs.new_version }}
-      base_branch: ${{ steps.vars.outputs.base_branch }}
 
     steps:
-      - name: Checkout repo
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Setup git
+      - name: Set up Git
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Read variables
+      - name: Get base branch name
         id: vars
         run: |
           echo "base_branch=${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
-          echo "head_branch=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
 
       - name: Read current version
-        id: current
+        id: get_version
         run: |
           if [ ! -f VERSION ]; then echo "0.0.0" > VERSION; fi
-          echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+          CURRENT_VERSION=$(cat VERSION)
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
 
       - name: Bump version
         id: bump
-        env:
-          BASE: ${{ github.event.pull_request.base.ref }}
-          HEAD: ${{ github.event.pull_request.head.ref }}
-          CURRENT_VERSION: ${{ steps.current.outputs.version }}
         run: |
-          IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-          if [ "$BASE" = "develop" ] && [[ "$HEAD" == feature/* ]]; then
-            ((minor++)); patch=0
-          elif [ "$BASE" = "main" ] && [[ "$HEAD" == hotfix/* ]]; then
-            ((patch++))
-          elif [ "$BASE" = "main" ] && [ "$HEAD" = "develop" ]; then
-            ((major++)); minor=0; patch=0
+          CURRENT_VERSION=${{ steps.get_version.outputs.current_version }}
+          MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+          MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
+          PATCH=$(echo $CURRENT_VERSION | cut -d. -f3)
+
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          if [[ "$BRANCH_NAME" == hotfix/* ]]; then
+            PATCH=$((PATCH + 1))
+          elif [[ "$BRANCH_NAME" == feature/* ]]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
           fi
-          NEW_VERSION="${major}.${minor}.${patch}"
+
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
           echo "$NEW_VERSION" > VERSION
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Update changelog
+      - name: Update CHANGELOG
         run: |
-          DATE=$(date +'%Y-%m-%d')
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          AUTHOR="${{ github.event.pull_request.user.login }}"
-          echo "## v${{ steps.bump.outputs.new_version }} - ${DATE}" >> CHANGELOG.md
-          echo "- ${PR_TITLE} (@${AUTHOR})" >> CHANGELOG.md
+          echo "## Version ${{ steps.bump.outputs.new_version }} - $(date +'%Y-%m-%d')" >> CHANGELOG.md
+          echo "- Merged branch: ${{ github.event.pull_request.head.ref }}" >> CHANGELOG.md
+          echo "- Pull request: #${{ github.event.pull_request.number }}" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
 
-      - name: Commit & Push
+      - name: Commit & Push version bump
         run: |
           git add VERSION CHANGELOG.md
-          git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }}"
-          git push origin ${{ github.event.pull_request.base.ref }}
-          git tag -a "v${{ steps.bump.outputs.new_version }}" -m "Release ${{ steps.bump.outputs.new_version }}"
-          git push origin "v${{ steps.bump.outputs.new_version }}"
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }}" || echo "No changes to commit"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} HEAD:main
 
-  notify:
-    name: Notify Telegram
-    runs-on: ubuntu-latest
-    needs: version_and_changelog
-    steps:
-      - name: Send Telegram message
+      - name: Create Tag
+        run: |
+          git tag v${{ steps.bump.outputs.new_version }}
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} v${{ steps.bump.outputs.new_version }}
+
+      - name: Send Telegram Notification
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          VERSION: ${{ needs.version_and_changelog.outputs.new_version }}
-          BASE: ${{ needs.version_and_changelog.outputs.base_branch }}
-          REPO: ${{ github.repository }}
         run: |
-          MESSAGE="🚀 *New Release:* v${VERSION}\n📦 Repo: ${REPO}\n🌿 Branch: ${BASE}\n✅ Auto-versioning successful!"
+          MESSAGE="✅ *Новая версия проекта!*%0A\
+          📦 Версия: v${{ steps.bump.outputs.new_version }}%0A\
+          🔀 Ветка: ${{ github.event.pull_request.base.ref }}%0A\
+          🧩 PR: #${{ github.event.pull_request.number }}%0A\
+          💬 Автор: ${{ github.event.pull_request.user.login }}"
+          
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d chat_id=${TELEGRAM_CHAT_ID} \
-              -d parse_mode="Markdown" \
-              -d text="$MESSAGE"
+          -d chat_id="${TELEGRAM_CHAT_ID}" \
+          -d text="${MESSAGE}" \
+          -d parse_mode="Markdown"
